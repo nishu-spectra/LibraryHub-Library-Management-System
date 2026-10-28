@@ -1,0 +1,17 @@
+<?php
+require_once __DIR__ . '/../app/layout.php'; require_login();$pdo=db();$error='';
+if($_SERVER['REQUEST_METHOD']==='POST'){csrf_check();try{
+ $name=trim((string)($_POST['full_name']??''));if($name==='')throw new RuntimeException('Member name is required.');
+ $code=trim((string)($_POST['member_code']??''));if($code==='')$code='MEM-'.date('ymd').'-'.strtoupper(bin2hex(random_bytes(2)));
+ $stmt=$pdo->prepare("INSERT INTO members(member_code,full_name,email,phone,address,member_type,joined_on,valid_until) VALUES(?,?,?,?,?,'Public',CURDATE(),?)");
+ $stmt->execute([$code,$name,filter_var(trim((string)($_POST['email']??'')),FILTER_VALIDATE_EMAIL)?:null,trim((string)($_POST['phone']??''))?:null,trim((string)($_POST['address']??''))?:null,($_POST['valid_until']??'')?:null]);
+ flash('success','Public member registered. Membership ID: '.$code);redirect('members.php');
+}catch(Throwable $ex){$error=$ex instanceof RuntimeException?$ex->getMessage():'Could not register member. Check whether the membership ID already exists.';}}
+$q=trim((string)($_GET['q']??''));$sql='SELECT m.*, (SELECT COUNT(*) FROM loans l WHERE l.member_id=m.id AND l.returned_at IS NULL) active_loans FROM members m';$params=[];
+if($q!==''){$sql.=' WHERE m.full_name LIKE ? OR m.member_code LIKE ? OR m.phone LIKE ? OR m.email LIKE ?';$like="%$q%";$params=[$like,$like,$like,$like];}$sql.=' ORDER BY m.created_at DESC LIMIT 300';$s=$pdo->prepare($sql);$s->execute($params);$members=$s->fetchAll();
+page_start('Members');if($error)echo '<div class="alert error">'.e($error).'</div>';
+echo '<div class="grid two-col"><section class="card"><div class="section-head"><div><h2>Public members</h2><p>Membership records and active loans</p></div></div><form class="toolbar" method="get"><input class="search" name="q" value="'.e($q).'" placeholder="Search name, member ID, phone"><button class="btn btn-light">Search</button></form><div class="table-wrap"><table><thead><tr><th>Member</th><th>Contact</th><th>Valid until</th><th>Loans</th><th>Status</th></tr></thead><tbody>';
+if(!$members)echo '<tr><td colspan="5" class="empty">No members registered yet.</td></tr>';
+foreach($members as $m)echo '<tr><td><span class="book-title">'.e($m['full_name']).'</span><span class="subtext">'.e($m['member_code']).'</span></td><td>'.e($m['phone']??'—').'<span class="subtext">'.e($m['email']??'').'</span></td><td>'.e($m['valid_until']??'No expiry').'</td><td>'.(int)$m['active_loans'].'</td><td><span class="badge active">'.e(ucfirst($m['status'])).'</span></td></tr>';
+echo '</tbody></table></div></section><section class="card"><div class="section-head"><div><h2>Register member</h2><p>Create a public borrowing account</p></div></div><form method="post"><input type="hidden" name="csrf_token" value="'.e(csrf_token()).'"><div class="form-grid"><div class="field full"><label>Full name *</label><input name="full_name" required maxlength="160"></div><div class="field"><label>Member ID (optional)</label><input name="member_code" maxlength="40" placeholder="Auto-generated if blank"></div><div class="field"><label>Phone</label><input name="phone" maxlength="40"></div><div class="field"><label>Email</label><input type="email" name="email" maxlength="190"></div><div class="field"><label>Membership valid until</label><input type="date" name="valid_until"></div><div class="field full"><label>Address</label><textarea name="address" rows="3"></textarea></div></div><div class="form-actions"><button class="btn btn-primary">Register member</button></div></form></section></div>';
+page_end();
